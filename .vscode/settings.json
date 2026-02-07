@@ -1,3 +1,10 @@
 {
-    "git.ignoreLimitWarning": true
+    "git.ignoreLimitWarning": true,
+    "makefile.launchConfigurations": [
+        {
+            "cwd": "c:\\Users\\gudud\\OneDrive\\Desktop\\cont.c",
+            "binaryPath": "c:\\Users\\gudud\\OneDrive\\Desktop\\cont.c\\door_admin.exe",
+            "binaryArgs": []
+        }
+    ]
 }
