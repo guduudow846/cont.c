@@ -6,7 +6,6 @@
 #include <stdbool.h>
 #include "safeinput.h"
 
-
 INPUT_RESULT GetInput(char* prompt, char* buff, int maxSize)
 {
     if (prompt != NULL)
@@ -15,14 +14,12 @@ INPUT_RESULT GetInput(char* prompt, char* buff, int maxSize)
     if (fgets(buff, maxSize, stdin) == NULL)
         return INPUT_RESULT_NO_INPUT;
 
-    
     if (buff[strlen(buff) - 1] != '\n') {
         int ch;
         while ((ch = getchar()) != '\n' && ch != EOF);
         return INPUT_RESULT_TOO_LONG;
     }
 
-    /* Remove newline */
     buff[strcspn(buff, "\n")] = '\0';
 
     if (strlen(buff) == 0)
@@ -30,7 +27,6 @@ INPUT_RESULT GetInput(char* prompt, char* buff, int maxSize)
 
     return INPUT_RESULT_OK;
 }
-
 
 bool GetInputInt(char* prompt, int* value)
 {
@@ -51,7 +47,6 @@ bool GetInputInt(char* prompt, int* value)
     return true;
 }
 
-
 bool GetInputFloat(char* prompt, float* value)
 {
     char buff[100];
@@ -67,7 +62,6 @@ bool GetInputFloat(char* prompt, float* value)
 
     return true;
 }
-
 
 bool GetInputChar(char* prompt, char* value)
 {

@@ -4,10 +4,16 @@
 #include <stdbool.h>
 #include <time.h>
 
-
 #include "safeinput.h"
 
-/* One card */
+/* ---------- Konstanter ---------- */
+#define DOOR_OPEN_SECONDS 5
+#define LAMP_OFF   0
+#define LAMP_GREEN 1
+#define LAMP_RED   2
+
+/* ---------- Datastrukturer ---------- */
+
 typedef struct
 {
     char number[32];
@@ -17,150 +23,233 @@ typedef struct
 
 typedef struct
 {
-    Card* cards;
-    int count;
+    Card* cards;          /* dynamisk array */
+    int count;            /* antal kort */
+    int lampState;        /* LAMP_OFF / LAMP_GREEN / LAMP_RED */
+    time_t lampChangedAt; /* när lampan senast ändrades */
 } SystemState;
 
-/* Get current date */
-void getCurrentDate(char* buffer, int size)
+/* ---------- Datum ---------- */
+
+static void getCurrentDate(char* buffer, int size)
 {
     time_t now = time(NULL);
     struct tm* t = localtime(&now);
     strftime(buffer, size, "%Y-%m-%d", t);
 }
 
-/* Add new card */
-void addCard(SystemState* state)
+/* ---------- Lampa ---------- */
+
+static const char* lampName(int state)
 {
-    Card newCard;
-    int access = 0;
-
-    if (GetInput("Enter card number: ", newCard.number, sizeof(newCard.number)) != INPUT_RESULT_OK)
-    {
-        printf("Invalid input.\n");
-        return;
+    switch (state) {
+        case LAMP_GREEN: return "Green";
+        case LAMP_RED:   return "Red";
+        default:         return "Off";
     }
+}
 
-    if (!GetInputInt("Has access (1=yes, 0=no): ", &access))
+static void setLamp(SystemState* state, int lamp)
+{
+    state->lampState = lamp;
+    state->lampChangedAt = time(NULL);
+    printf("CURRENTLY LAMP IS:%s\n", lampName(lamp));
+}
+
+static void printLamp(const SystemState* state)
+{
+    printf("CURRENTLY LAMP IS:%s\n", lampName(state->lampState));
+}
+
+/* Om dörren varit öppen i 5 sek → släck lampan */
+static void updateLampTimeout(SystemState* state)
+{
+    if (state->lampState != LAMP_OFF &&
+        difftime(time(NULL), state->lampChangedAt) >= DOOR_OPEN_SECONDS)
     {
-        printf("Invalid input.\n");
-        return;
+        setLamp(state, LAMP_OFF);
     }
+}
 
-    newCard.hasAccess = access ? true : false;
-    getCurrentDate(newCard.dateAdded, sizeof(newCard.dateAdded));
+/* ---------- Kortlistan ---------- */
+
+static Card* findCard(SystemState* state, const char* number)
+{
+    for (int i = 0; i < state->count; i++) {
+        if (strcmp(state->cards[i].number, number) == 0)
+            return &state->cards[i];
+    }
+    return NULL;
+}
+
+static Card* addOrGetCard(SystemState* state, const char* number)
+{
+    Card* existing = findCard(state, number);
+    if (existing) return existing;
 
     Card* temp = realloc(state->cards, (state->count + 1) * sizeof(Card));
-    if (temp == NULL)
-    {
+    if (!temp) {
         printf("Memory error.\n");
-        return;
+        return NULL;
     }
-
     state->cards = temp;
-    state->cards[state->count] = newCard;
-    state->count++;
 
-    printf("Card added.\n");
+    Card* c = &state->cards[state->count++];
+    strncpy(c->number, number, sizeof(c->number) - 1);
+    c->number[sizeof(c->number) - 1] = '\0';
+    c->hasAccess = false;
+    getCurrentDate(c->dateAdded, sizeof(c->dateAdded));
+    return c;
 }
 
-/* Scan card */
-void scanCard(SystemState* state)
+static void freeSystem(SystemState* state)
 {
-    char input[32];
-    bool found = false;
+    free(state->cards);
+    state->cards = NULL;
+    state->count = 0;
+}
 
-    if (GetInput("Scan card number: ", input, sizeof(input)) != INPUT_RESULT_OK)
-    {
+/* ---------- Menyfunktioner ---------- */
+
+static void remoteOpenDoor(SystemState* state)
+{
+    setLamp(state, LAMP_GREEN);
+    printf("Door opened remotely for %d seconds.\n", DOOR_OPEN_SECONDS);
+}
+
+static void listAllCards(SystemState* state)
+{
+    printf("All cards in system\n");
+    if (state->count == 0) {
+        printf("(No cards in system)\n");
+    } else {
+        for (int i = 0; i < state->count; i++) {
+            printf("%s %s Added to system: %s\n",
+                   state->cards[i].number,
+                   state->cards[i].hasAccess ? "Access" : "No access",
+                   state->cards[i].dateAdded);
+        }
+    }
+    printf("Press key to continue\n");
+    getchar();
+}
+
+static void addRemoveAccess(SystemState* state)
+{
+    char number[32];
+
+    if (GetInput("Enter cardnumber>", number, sizeof(number)) != INPUT_RESULT_OK) {
         printf("Invalid input.\n");
         return;
     }
 
-    for (int i = 0; i < state->count; i++)
-    {
-        if (strcmp(state->cards[i].number, input) == 0)
-        {
-            found = true;
-            if (state->cards[i].hasAccess)
-            {
-                printf("CURRENTLY LAMP IS: Green\n");
-                printf("Door is open for 3 seconds...\n");
-            }
-            else
-            {
-                printf("CURRENTLY LAMP IS: Red\n");
-            }
-            return;
-        }
-    }
+    Card* c = addOrGetCard(state, number);
+    if (!c) return;
 
-    if (!found)
-    {
-        printf("Card not found. CURRENTLY LAMP IS: Red\n");
-    }
-}
+    printf("This card %s\n", c->hasAccess ? "has access" : "has no access");
+    printf("Enter 1 for access, 2 for no access\n");
 
-/* List all cards */
-void listCards(SystemState* state)
-{
-    if (state->count == 0)
-    {
-        printf("No cards in system.\n");
+    int val;
+    if (!GetInputInt("", &val)) {
+        printf("Invalid input, nothing changed.\n");
         return;
     }
 
-    for (int i = 0; i < state->count; i++)
-    {
-        printf("%d. %s - %s - %s\n",
-               i + 1,
-               state->cards[i].number,
-               state->cards[i].hasAccess ? "ACCESS" : "NO ACCESS",
-               state->cards[i].dateAdded);
+    if (val == 1) {
+        c->hasAccess = true;
+        printf("Card %s now has access.\n", c->number);
+    } else if (val == 2) {
+        c->hasAccess = false;
+        printf("Card %s no longer has access.\n", c->number);
+    } else {
+        printf("Invalid choice, nothing changed.\n");
     }
 }
 
-/* Main */
+static void fakeScanCard(SystemState* state)
+{
+    char input[32];
+
+    printf("Please scan card to enter or X to go back to admin menu\n");
+    printLamp(state);
+
+    if (GetInput("", input, sizeof(input)) != INPUT_RESULT_OK) {
+        printf("Invalid input.\n");
+        return;
+    }
+
+    /* X = tillbaka till admin-menyn */
+    if (strcmp(input, "X") == 0 || strcmp(input, "x") == 0) {
+        return;
+    }
+
+    Card* c = findCard(state, input);
+    if (c && c->hasAccess) {
+        setLamp(state, LAMP_GREEN);
+    } else {
+        setLamp(state, LAMP_RED);
+    }
+}
+
+/* ---------- Admin-meny ---------- */
+
+static void printAdminMenu(void)
+{
+    printf("Admin menu\n");
+    printf("1. Remote open door\n");
+    printf("2. List all cards in system\n");
+    printf("3. Add/remove access\n");
+    printf("4. Exit\n");
+    printf("9. FAKE TEST SCAN CARD\n");
+}
+
+/* ---------- Main ---------- */
+
 int main(void)
 {
     SystemState state;
     state.cards = NULL;
     state.count = 0;
+    state.lampState = LAMP_OFF;
+    state.lampChangedAt = time(NULL);
 
-    int choice = -1;
-
-    while (choice != 0)
+    while (1)
     {
-        printf("\n--- DOOR ADMIN ---\n");
-        printf("1. Add card\n");
-        printf("2. Scan card\n");
-        printf("3. List all cards\n");
-        printf("0. Exit\n");
+        updateLampTimeout(&state);
 
-        if (!GetInputInt("Choice: ", &choice))
-        {
-            printf("Invalid choice.\n");
+        printAdminMenu();
+        printLamp(&state);
+
+        int choice;
+        if (!GetInputInt("", &choice)) {
+            printf("Invalid choice, try again.\n");
             continue;
         }
 
         switch (choice)
         {
             case 1:
-                addCard(&state);
+                remoteOpenDoor(&state);
                 break;
             case 2:
-                scanCard(&state);
+                listAllCards(&state);
                 break;
             case 3:
-                listCards(&state);
+                addRemoveAccess(&state);
                 break;
-            case 0:
+            case 4:
                 printf("Exiting program.\n");
+                freeSystem(&state);
+                return 0;
+            case 9:
+                fakeScanCard(&state);
                 break;
             default:
-                printf("Wrong choice.\n");
+                printf("Wrong choice, try again.\n");
+                break;
         }
     }
 
-    free(state.cards);
+    freeSystem(&state);
     return 0;
 }

@@ -7,5 +7,4 @@ all:
 	$(CC) $(CFLAGS) $(SRC) -o $(OUT)
 
 clean:
-	del $(OUT)
-
+	rm -f $(OUT)
